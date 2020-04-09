@@ -1,0 +1,26 @@
+groups:
+- name: black
+  rules:
+  - alert: BlackProbe
+    expr: probe_success == 0
+    for: 10s
+    labels:
+      severity: "critical"
+    annotations:
+      summary: "Sur le Job {{ $labels.job }}, il semble que {{ $labels.instance }} ne reponde pas"
+  - alert: HTTP200
+    expr: probe_http_status_code != 200
+    for: 10s
+    labels:
+      severity: "critical"
+    annotations:
+      summary: "Sur le Job {{ $labels.job }}, il semble que {{ $labels.instance }} ne fonctionne pas correctement"
+- name: ssl_expiry
+  rules:
+  - alert: SSLCertExpiration
+    expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
+    for: 1m
+    labels:
+      severity: "critical"
+    annotations:
+      summary: "Le certificat de {{ $labels.instance }} va expirer dans un mois."

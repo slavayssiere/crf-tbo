@@ -1,0 +1,155 @@
+version: '3.7'
+
+services:
+
+  ws_pegass:
+    build:
+      context: ws_pegass
+      dockerfile: Dockerfile
+    image: slavayssiere/ws_pegass:latest
+    environment:
+      JAEGER_AGENT_HOST: "jaeger"
+      JAEGER_AGENT_PORT: 6831
+      PORT: "8080"
+      REDIS_HOST: "redis"
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+    # restart: on-failure
+    networks:
+      - tbo
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pegass.rule=Host(`pegass.localhost.org`)"
+      - "traefik.http.routers.pegass.entrypoints=web"
+      - "traefik.http.routers.pegass.service=pegass"
+      - "traefik.http.services.pegass.loadbalancer.server.port=8080"
+
+################
+### products ###
+################
+
+  traefik:
+    image: traefik:v2.1.4 # The official Traefik docker image
+    ports:
+      - "80:80"     # The HTTP port
+      - "443:443"     # The HTTPS port
+      - "8081:8080" # The Web UI (enabled by --api)
+      - "26257:26257"
+    labels: 
+      - "traefik.enable=true"
+      - "traefik.http.routers.web.rule=Host(`traefik.localhost.org`)"
+      - "traefik.http.routers.web.service=api@internal"
+      - "traefik.http.routers.web.entrypoints=web"
+    networks:
+      - tbo
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./automation/traefik/traefik.toml:/etc/traefik/traefik.toml
+      - ./automation/traefik/conf:/conf/
+
+
+  db_cockroach_1:
+    image: cockroachdb/cockroach:v19.2.4
+    volumes:
+      - db_cockroach_1:/cockroach/cockroach-data
+    command: start-single-node --insecure --log-file-verbosity=INFO --logtostderr=WARNING
+    networks:
+      - tbo
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.cockroachdb-webui.rule=Host(`cockroachdb.localhost.org`)"
+      - "traefik.http.routers.cockroachdb-webui.entrypoints=web"
+      - "traefik.http.routers.cockroachdb-webui.service=cockroachdb-webui"
+      - "traefik.http.services.cockroachdb-webui.loadbalancer.server.port=8080"
+
+
+  redis:
+    image: redis:5.0.7-alpine
+    networks:
+      - tbo
+    labels:
+      - "traefik.enable=false"
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.4.0-alpine
+    environment: 
+      REDIS_ADDR: 'redis'
+    networks:
+      - tbo
+    labels:
+      - "traefik.enable=false"
+            
+  #################### Monitoring
+  jaeger:
+    image: jaegertracing/all-in-one:1.16.0
+    ports:
+      - 16686:16686
+      - 6831:6831/udp
+    networks:
+      - tbo
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jaeger.rule=Host(`jaeger.localhost.org`)"
+      - "traefik.http.routers.jaeger.entrypoints=web"
+      - "traefik.http.routers.jaeger.service=jaeger"
+      - "traefik.http.services.jaeger.loadbalancer.server.port=16686"
+
+
+  prometheus:
+    image: prom/prometheus:v2.16.0
+    volumes:
+      - ./automation/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./automation/prometheus/rules:/etc/prometheus/rules
+    command: "--config.file=/etc/prometheus/prometheus.yml"
+    networks:
+      - tbo
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.localhost.org`)"
+      - "traefik.http.routers.prometheus.entrypoints=web"
+      - "traefik.http.routers.prometheus.service=prometheus"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+
+
+  grafana:
+    image: grafana/grafana:6.6.2
+    environment: 
+      GF_SERVER_ROOT_URL: http://grafana.localhost.org
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes: 
+      - ./automation/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./automation/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./automation/grafana/custom:/etc/grafana/provisioning/custom
+      - ./tmp_dashboards:/etc/grafana/provisioning/dashboards-officiel
+      - grafana-storage:/var/lib/grafana
+    networks: 
+      - tbo
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.localhost.org`)"
+      - "traefik.http.routers.grafana.entrypoints=web"
+      - "traefik.http.routers.grafana.service=grafana"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+  
+
+  swagger-ui:
+    image: swaggerapi/swagger-ui:v3.25.0
+    environment: 
+      DISPLAY_REQUEST_DURATION: "true"
+    networks: 
+      - tbo
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.swagger.rule=Host(`swagger.localhost.org`)"
+      - "traefik.http.routers.swagger.entrypoints=web"
+      - "traefik.http.routers.swagger.service=swagger"
+      - "traefik.http.services.swagger.loadbalancer.server.port=8080"
+
+          
+volumes:
+  db_cockroach_1: {}
+  grafana-storage: {}
+    
+networks:
+  tbo:
+    driver: bridge
